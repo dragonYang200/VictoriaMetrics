@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
+
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/auth"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/logger"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompbmarshal"
@@ -23,7 +25,6 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/kubernetes"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/openstack"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/yandexcloud"
-	"github.com/VictoriaMetrics/metrics"
 )
 
 type Scraper struct {
@@ -47,6 +48,7 @@ func NewScraper(configDetail []byte, name, authorizationPath string) *Scraper {
 }
 
 func (s *Scraper) Init(pushData func(at *auth.Token, wr *prompbmarshal.WriteRequest)) {
+	mustInitClusterMemberID()
 	s.globalStopCh = make(chan struct{})
 	s.scraperWG.Add(1)
 	s.pushData = pushData
