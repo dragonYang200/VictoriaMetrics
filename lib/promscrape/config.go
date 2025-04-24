@@ -12,6 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
+	"github.com/cespare/xxhash/v2"
+	"gopkg.in/yaml.v2"
+
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/auth"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/bytesutil"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/cgroup"
@@ -36,9 +40,6 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/yandexcloud"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promutils"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/proxy"
-	"github.com/VictoriaMetrics/metrics"
-	"github.com/cespare/xxhash/v2"
-	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -1156,6 +1157,7 @@ func appendScrapeWorkKey(dst []byte, labels []prompbmarshal.Label) []byte {
 }
 
 func needSkipScrapeWork(key string, membersCount, replicasCount, memberNum int) bool {
+	logger.Infof("needSkipScrapeWork(key=%q, membersCount=%d, replicasCount=%d, memberNum=%d)", key, membersCount, replicasCount, memberNum)
 	if membersCount <= 1 {
 		return false
 	}
