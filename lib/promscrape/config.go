@@ -1157,6 +1157,7 @@ func appendScrapeWorkKey(dst []byte, labels []prompbmarshal.Label) []byte {
 }
 
 func needSkipScrapeWork(key string, membersCount, replicasCount, memberNum int) bool {
+	fmt.Println(fmt.Sprintf("needSkipScrapeWork(key=%q, membersCount=%d, replicasCount=%d, memberNum=%d)", key, membersCount, replicasCount, memberNum))
 	logger.Infof("needSkipScrapeWork(key=%q, membersCount=%d, replicasCount=%d, memberNum=%d)", key, membersCount, replicasCount, memberNum)
 	if membersCount <= 1 {
 		return false
@@ -1222,6 +1223,8 @@ func (swc *scrapeWorkConfig) getScrapeWork(target string, extraLabels, metaLabel
 	// Perform the verification on labels after the relabeling in order to guarantee that targets with the same set of labels
 	// go to the same vmagent shard.
 	// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1687#issuecomment-940629495
+	fmt.Println(fmt.Sprintf("getScrapeWork, target=%s, clusterMembersCount=%d, clusterReplicationFactor=%d, clusterMemberID=%d", target, *clusterMembersCount, *clusterReplicationFactor, clusterMemberID))
+	logger.Infof("getScrapeWork, target=%s, clusterMembersCount=%d, clusterReplicationFactor=%d, clusterMemberID=%d", target, *clusterMembersCount, *clusterReplicationFactor, clusterMemberID)
 	if *clusterMembersCount > 1 {
 		bb := scrapeWorkKeyBufPool.Get()
 		bb.B = appendScrapeWorkKey(bb.B[:0], labels)
