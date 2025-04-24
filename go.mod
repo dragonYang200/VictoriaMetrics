@@ -1,4 +1,4 @@
-module github.com/VictoriaMetrics/VictoriaMetrics
+module github.com/dragonYang200/VictoriaMetrics
 
 go 1.19
 
