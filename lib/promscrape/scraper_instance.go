@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
+
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/auth"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/logger"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompbmarshal"
@@ -37,6 +39,7 @@ type Scraper struct {
 	authorizationPath string
 	pushData          func(at *auth.Token, wr *prompbmarshal.WriteRequest)
 	scs               *scrapeConfigs
+	cfg               *Config
 }
 
 func NewScraper(configDetail []byte, name, authorizationPath string) *Scraper {
@@ -83,13 +86,15 @@ func (s *Scraper) runScraper() {
 		return
 	}
 	logger.Infof("reading Prometheus configs from %q", s.configFile)
-	cfg, data, err := loadConfig(s.configFile)
+	var data []byte
+	var err error
+	s.cfg, data, err = loadConfig(s.configFile)
 	if err != nil {
 		logger.Fatalf("cannot read %q: %s", s.configFile, err)
 	}
-	marshaledData := cfg.marshal()
+	marshaledData := s.cfg.marshal()
 	configData.Store(&marshaledData)
-	cfg.mustStart()
+	s.cfg.mustStart()
 
 	s.scs = newScrapeConfigs(s.pushData, s.globalStopCh)
 	s.scs.add(s.name+"_azure_sd_configs", *azure.SDCheckInterval, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getAzureSDScrapeWork(swsPrev) })
@@ -115,7 +120,7 @@ func (s *Scraper) runScraper() {
 		defer ticker.Stop()
 	}
 	for {
-		s.scs.updateConfig(cfg)
+		s.scs.updateConfig(s.cfg)
 	waitForChans:
 		select {
 		case <-tickerCh:
@@ -128,17 +133,18 @@ func (s *Scraper) runScraper() {
 				// Nothing changed since the previous loadConfig
 				goto waitForChans
 			}
-			cfgNew.mustRestart(cfg)
-			cfg = cfgNew
+			cfgNew.mustRestart(s.cfg)
+			s.cfg = cfgNew
 			data = dataNew
 			marshaledData = cfgNew.marshal()
 			configData.Store(&marshaledData)
 		case <-s.globalStopCh:
-			cfg.mustStop()
+			s.cfg.mustStop()
 			logger.Infof("stopping Prometheus scrapers")
 			startTime := time.Now()
 			s.scs.stop()
 			logger.Infof("stopped Prometheus scrapers in %.3f seconds", time.Since(startTime).Seconds())
+			metrics.Clear(s.name)
 			return
 		}
 		logger.Infof("found changes in %q; applying these changes", s.configFile)
@@ -156,6 +162,7 @@ func (s *Scraper) runScraper() {
 }
 
 func (s *Scraper) UpdateScrapeWork() {
+	s.scs.updateConfig(s.cfg)
 }
 
 // loadContentConfig loads Prometheus config from the configuration content.
