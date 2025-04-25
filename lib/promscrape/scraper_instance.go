@@ -1,13 +1,12 @@
 package promscrape
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/auth"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/logger"
@@ -30,7 +29,7 @@ import (
 type Scraper struct {
 	globalStopCh         chan struct{}
 	scraperWG            sync.WaitGroup
-	configDetail         []byte
+	configFile           string
 	PendingScrapeConfigs int32
 	configData           atomic.Value
 
@@ -39,11 +38,10 @@ type Scraper struct {
 	pushData          func(at *auth.Token, wr *prompbmarshal.WriteRequest)
 }
 
-func NewScraper(configDetail []byte, name, authorizationPath string) *Scraper {
+func NewScraper(configFile, name string) *Scraper {
 	return &Scraper{
-		configDetail:      configDetail,
-		name:              name,
-		authorizationPath: authorizationPath,
+		configFile: configFile,
+		name:       name,
 	}
 }
 
@@ -64,23 +62,27 @@ func (s *Scraper) Stop() {
 }
 
 func (s *Scraper) CheckConfig() error {
-	_, err := loadContentConfig(s.configDetail, s.authorizationPath)
+	if s.configFile == "" {
+		return fmt.Errorf("missing prom scraper config file")
+	}
+	_, _, err := loadConfig(s.configFile)
 	return err
 }
 
 func (s *Scraper) runScraper() {
-	if len(s.configDetail) == 0 {
+	if len(s.configFile) == 0 {
 		// Nothing to scrape.
 		return
 	}
-	logger.Infof("reading Prometheus configs from %q", s.name)
-	cfg, err := loadContentConfig(s.configDetail, s.authorizationPath)
+	logger.Infof("reading Prometheus configs from %q", s.configFile)
+	cfg, data, err := loadConfig(s.configFile)
 	if err != nil {
-		logger.Fatalf("cannot read %q: %s", s.name, err)
+		logger.Fatalf("cannot read %q: %s", s.configFile, err)
 	}
 	marshaledData := cfg.marshal()
 	configData.Store(&marshaledData)
 	cfg.mustStart()
+
 	scs := newScrapeConfigs(s.pushData, s.globalStopCh)
 	scs.add(s.name+"_azure_sd_configs", *azure.SDCheckInterval, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getAzureSDScrapeWork(swsPrev) })
 	scs.add(s.name+"_consul_sd_configs", *consul.SDCheckInterval, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getConsulSDScrapeWork(swsPrev) })
@@ -98,14 +100,51 @@ func (s *Scraper) runScraper() {
 	scs.add(s.name+"_yandexcloud_sd_configs", *yandexcloud.SDCheckInterval, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getYandexCloudSDScrapeWork(swsPrev) })
 	scs.add(s.name+"_static_configs", 0, func(cfg *Config, swsPrev []*ScrapeWork) []*ScrapeWork { return cfg.getStaticScrapeWork() })
 
-	scs.updateConfig(cfg)
-	<-s.globalStopCh
-	cfg.mustStop()
-	logger.Infof("stopping Prometheus scrapers")
-	startTime := time.Now()
-	scs.stop()
-	logger.Infof("stopped Prometheus scrapers in %.3f seconds", time.Since(startTime).Seconds())
-	metrics.Clear(s.name)
+	var tickerCh <-chan time.Time
+	if *configCheckInterval > 0 {
+		ticker := time.NewTicker(*configCheckInterval)
+		tickerCh = ticker.C
+		defer ticker.Stop()
+	}
+	for {
+		scs.updateConfig(cfg)
+	waitForChans:
+		select {
+		case <-tickerCh:
+			cfgNew, dataNew, err := loadConfig(s.configFile)
+			if err != nil {
+				logger.Errorf("cannot read %q: %s; continuing with the previous config", s.configFile, err)
+				goto waitForChans
+			}
+			if bytes.Equal(data, dataNew) {
+				// Nothing changed since the previous loadConfig
+				goto waitForChans
+			}
+			cfgNew.mustRestart(cfg)
+			cfg = cfgNew
+			data = dataNew
+			marshaledData = cfgNew.marshal()
+			configData.Store(&marshaledData)
+		case <-s.globalStopCh:
+			cfg.mustStop()
+			logger.Infof("stopping Prometheus scrapers")
+			startTime := time.Now()
+			scs.stop()
+			logger.Infof("stopped Prometheus scrapers in %.3f seconds", time.Since(startTime).Seconds())
+			return
+		}
+		logger.Infof("found changes in %q; applying these changes", s.configFile)
+		configReloads.Inc()
+	}
+
+	//scs.updateConfig(cfg)
+	//<-s.globalStopCh
+	//cfg.mustStop()
+	//logger.Infof("stopping Prometheus scrapers")
+	//startTime := time.Now()
+	//scs.stop()
+	//logger.Infof("stopped Prometheus scrapers in %.3f seconds", time.Since(startTime).Seconds())
+	//metrics.Clear(s.name)
 }
 
 // loadContentConfig loads Prometheus config from the configuration content.
