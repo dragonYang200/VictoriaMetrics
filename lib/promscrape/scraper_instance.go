@@ -38,7 +38,14 @@ type Scraper struct {
 	pushData          func(at *auth.Token, wr *prompbmarshal.WriteRequest)
 }
 
-func NewScraper(configFile, name string) *Scraper {
+func NewScraper(configDetail []byte, name, authorizationPath string) *Scraper {
+	return &Scraper{
+		name:              name,
+		authorizationPath: authorizationPath,
+	}
+}
+
+func NewScraperWithFile(configFile, name string) *Scraper {
 	return &Scraper{
 		configFile: configFile,
 		name:       name,
