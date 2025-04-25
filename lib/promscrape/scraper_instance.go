@@ -30,6 +30,7 @@ type Scraper struct {
 	globalStopCh         chan struct{}
 	scraperWG            sync.WaitGroup
 	configFile           string
+	configCheckInterval  time.Duration
 	PendingScrapeConfigs int32
 	configData           atomic.Value
 
