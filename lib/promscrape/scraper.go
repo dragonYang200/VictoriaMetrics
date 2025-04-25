@@ -74,6 +74,10 @@ func Stop() {
 	scraperWG.Wait()
 }
 
+func UpdateScrapeWorkChan() {
+	updateScrapeWorkChan <- struct{}{}
+}
+
 var (
 	globalStopChan       chan struct{}
 	updateScrapeWorkChan chan struct{}
