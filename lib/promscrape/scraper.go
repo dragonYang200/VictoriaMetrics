@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"github.com/VictoriaMetrics/VictoriaMetrics/lib/auth"
 	"io"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/auth"
+
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/logger"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/procutil"
@@ -26,7 +29,6 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/kubernetes"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/openstack"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promscrape/discovery/yandexcloud"
-	"github.com/VictoriaMetrics/metrics"
 )
 
 var (
@@ -57,6 +59,7 @@ func CheckConfig() error {
 func Init(pushData func(at *auth.Token, wr *prompbmarshal.WriteRequest)) {
 	mustInitClusterMemberID()
 	globalStopChan = make(chan struct{})
+	updateScrapeWorkChan = make(chan struct{})
 	scraperWG.Add(1)
 	go func() {
 		defer scraperWG.Done()
@@ -67,12 +70,14 @@ func Init(pushData func(at *auth.Token, wr *prompbmarshal.WriteRequest)) {
 // Stop stops Prometheus scraper.
 func Stop() {
 	close(globalStopChan)
+	close(updateScrapeWorkChan)
 	scraperWG.Wait()
 }
 
 var (
-	globalStopChan chan struct{}
-	scraperWG      sync.WaitGroup
+	globalStopChan       chan struct{}
+	updateScrapeWorkChan chan struct{}
+	scraperWG            sync.WaitGroup
 	// PendingScrapeConfigs - zero value means, that
 	// all scrapeConfigs are inited and ready for work.
 	PendingScrapeConfigs int32
@@ -277,6 +282,7 @@ func (scfg *scrapeConfig) run(globalStopCh <-chan struct{}) {
 		case <-scfg.stopCh:
 			return
 		case cfg = <-scfg.cfgCh:
+		case <-updateScrapeWorkChan:
 		case <-tickerCh:
 		}
 		updateScrapeWork(cfg)
