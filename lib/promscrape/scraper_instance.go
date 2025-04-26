@@ -150,19 +150,12 @@ func (s *Scraper) runScraper() {
 		logger.Infof("found changes in %q; applying these changes", s.configFile)
 		configReloads.Inc()
 	}
-
-	//scs.updateConfig(cfg)
-	//<-s.globalStopCh
-	//cfg.mustStop()
-	//logger.Infof("stopping Prometheus scrapers")
-	//startTime := time.Now()
-	//scs.stop()
-	//logger.Infof("stopped Prometheus scrapers in %.3f seconds", time.Since(startTime).Seconds())
-	//metrics.Clear(s.name)
 }
 
 func (s *Scraper) UpdateScrapeWork() {
-	s.scs.updateConfig(s.cfg)
+	if s.scs != nil {
+		s.scs.updateConfig(s.cfg)
+	}
 }
 
 // loadContentConfig loads Prometheus config from the configuration content.
